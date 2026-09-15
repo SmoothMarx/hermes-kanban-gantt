@@ -1,0 +1,285 @@
+"""Tests for the kanban-gantt plugin backend (reads + domain writes).
+
+Runs against a REAL temporary kanban board created via hermes_cli.kanban_db
+(no mocks for the domain layer): exercises /boards, /gantt, /tasks/<id>, and
+every write endpoint, asserting domain invariants (refused transitions,
+parent gating) surface as 409.
+
+Isolation contract (defence in depth, in order):
+1. PRIMARY SANDBOX — HERMES_HOME/HERMES_KANBAN_HOME are monkeypatched to a
+   per-run tmp dir, so kanban_db writes land under <tmp>/kanban/boards/ and
+   CANNOT touch the profile's real boards even if a test misbehaves.
+2. FIXED SLUG — the test board is always `kanban-gantt-test` (never random):
+   recognizable, and any stray leftover is deletable by name.
+3. PURGE BEFORE + AFTER — the fixture wipes any leftover of that slug in the
+   sandbox at setup and removes the whole sandbox dir at teardown; a session
+   killed mid-run is also caught by the next run's purge.
+
+The real shared boards (sumaris, hermes-plugins, …) are never written: their
+roots are simply not mounted into the sandbox.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+# Make the plugin backend importable and point it at a temp boards root.
+PLUGIN_DIR = Path(__file__).resolve().parent.parent / "dashboard"
+sys.path.insert(0, str(PLUGIN_DIR))
+
+# hermes_cli lives in the hermes venv; tests are run with that interpreter.
+from hermes_cli import kanban_db  # noqa: E402
+
+import plugin_api  # noqa: E402
+
+# The dedicated test board slug — fixed so any stray leftover is identifiable
+# and cleanable by name (see purge_board_root()).
+TEST_SLUG = "kanban-gantt-test"
+
+
+@pytest.fixture()
+def board(tmp_path, monkeypatch):
+    """A real sandboxed board with a small parent->child task graph.
+
+    Every run gets its OWN tmp boards root (HERMES_HOME/HERMES_KANBAN_HOME
+    point there), so the profile's shared boards are physically unreachable.
+    The `kanban-gantt-test` slug is purged before AND after each test: before,
+    to recover from a previous crashed run; after, to leave nothing behind.
+    """
+    sandbox = tmp_path
+    boards_root = sandbox / "kanban" / "boards"
+    monkeypatch.setenv("KANBAN_GANTT_BOARDS", str(boards_root))
+    monkeypatch.setenv("HERMES_HOME", str(sandbox))
+    # kanban_db.connect resolves <HERMES_KANBAN_HOME>/kanban/boards/<slug> —
+    # point it at the SAME boards root the plugin reads, so writes and reads
+    # hit one sandbox.
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(sandbox))
+
+    # ── purge BEFORE: recover from a killed previous run in this sandbox ────
+    # (tmp_path is per-run, so this only fires when a session-level dir is
+    # reused; it also wipes a leftover copy in a persistent root if any.)
+    for stale in (boards_root / TEST_SLUG, sandbox / "kanban.db"):
+        shutil.rmtree(stale, ignore_errors=True) if stale.is_dir() else (
+            stale.unlink(missing_ok=True))
+
+    # init_db + create tasks through the domain layer (invariants included)
+    conn = kanban_db.connect(board=TEST_SLUG)
+    parent = kanban_db.create_task(conn, title="[TEST] parent task", priority=1,
+                                   created_by="test")
+    child = kanban_db.create_task(conn, title="[TEST] child task", priority=2,
+                                  created_by="test", parents=[parent])
+    solo = kanban_db.create_task(conn, title="no prefix task", priority=1,
+                                 created_by="test")
+    kanban_db.complete_task(conn, parent, result="parent finished")
+    kanban_db.add_comment(conn, child, author="test", body="a comment")
+    conn.close()
+
+    yield {"slug": TEST_SLUG, "parent": parent, "child": child, "solo": solo}
+
+    # ── cleanup AFTER: remove the whole sandbox (boards + DB + wal) ─────────
+    shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@pytest.fixture()
+def client(board):
+    app = plugin_api.create_app(allow_cors=False)
+    return TestClient(app), board
+
+
+# ---------------------------------------------------------------------------
+# Reads
+# ---------------------------------------------------------------------------
+
+def test_boards_list(client):
+    http, board = client
+    r = http.get("/boards")
+    assert r.status_code == 200
+    data = r.json()
+    slugs = [b["slug"] for b in data["boards"]]
+    assert board["slug"] in slugs
+    assert data["current"]
+
+
+def test_gantt_snapshot(client):
+    http, board = client
+    r = http.get(f"/gantt?board={board['slug']}")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["board"] == board["slug"]
+    by_id = {t["id"]: t for t in data["tasks"]}
+    assert len(by_id) == 3
+
+    parent = by_id[board["parent"]]
+    child = by_id[board["child"]]
+    assert parent["status"] == "done"
+    assert parent["archived"] is False
+    assert child["parents"] == [board["parent"]]
+    assert parent["children"] == [board["child"]]
+    assert parent["label"] == "TEST"
+    assert by_id[board["solo"]]["label"] is None
+    assert "runs" in parent
+    assert isinstance(parent["runs"], list)
+
+    assert {"label": "TEST", "count": 2} in data["labels"]
+
+
+def test_gantt_rejects_traversal(client):
+    http, _ = client
+    assert http.get("/gantt?board=../").status_code == 400
+    assert http.get("/gantt?board=..%2Fetc").status_code in (400, 503)
+
+
+def test_task_detail(client):
+    http, board = client
+    r = http.get(f"/tasks/{board['child']}?board={board['slug']}")
+    assert r.status_code == 200
+    task = r.json()["task"]
+    assert task["id"] == board["child"]
+    assert task["parents"] == [board["parent"]]
+    assert any(c["body"] == "a comment" for c in task["comments"])
+    assert task["latest_summary"] is None or isinstance(task["latest_summary"], str)
+
+
+def test_task_detail_404(client):
+    http, board = client
+    assert http.get(f"/tasks/t_missing?board={board['slug']}").status_code == 404
+
+
+def test_bulk_status_update(client):
+    http, board = client
+    # child and solo are unblocked / ready -> move both to blocked in bulk
+    r = http.post(
+        f"/tasks/bulk?board={board['slug']}",
+        json={"ids": [board["child"], board["solo"]], "action": "blocked"}
+    )
+    assert r.status_code == 200
+    res = r.json()["results"]
+    assert len(res) == 2
+    assert all(item["ok"] for item in res)
+
+    # Mass assign
+    r = http.post(
+        f"/tasks/bulk?board={board['slug']}",
+        json={"ids": [board["child"], board["solo"]], "assignee": "senior-coder"}
+    )
+    assert r.status_code == 200
+    res = r.json()["results"]
+    assert len(res) == 2
+    assert all(item["ok"] for item in res)
+
+
+# ---------------------------------------------------------------------------
+# Writes (domain layer, real invariants)
+# ---------------------------------------------------------------------------
+
+def test_status_done_and_archive(client):
+    http, board = client
+    # child's parent is done -> unblocked path works
+    r = http.patch(f"/tasks/{board['child']}/status?board={board['slug']}",
+                   json={"action": "done", "result": "child finished"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+    r = http.patch(f"/tasks/{board['solo']}/status?board={board['slug']}",
+                   json={"action": "archive"})
+    assert r.status_code == 200
+
+    data = http.get(f"/gantt?board={board['slug']}").json()
+    by_id = {t["id"]: t for t in data["tasks"]}
+    assert by_id[board["child"]]["status"] == "done"
+    assert by_id[board["solo"]]["archived"] is True
+
+
+def test_status_unblock_refused_when_not_blocked(client):
+    http, board = client
+    r = http.patch(f"/tasks/{board['child']}/status?board={board['slug']}",
+                   json={"action": "unblock"})
+    assert r.status_code == 409  # not blocked/scheduled -> domain refuses
+
+
+def test_status_block_then_unblock(client):
+    http, board = client
+    r = http.patch(f"/tasks/{board['child']}/status?board={board['slug']}",
+                   json={"action": "blocked", "reason": "waiting on data"})
+    assert r.status_code == 200
+    r = http.patch(f"/tasks/{board['child']}/status?board={board['slug']}",
+                   json={"action": "unblock"})
+    assert r.status_code == 200
+    data = http.get(f"/gantt?board={board['slug']}").json()
+    by_id = {t["id"]: t for t in data["tasks"]}
+    assert by_id[board["child"]]["status"] == "ready"
+
+
+def test_status_unknown_action(client):
+    http, board = client
+    r = http.patch(f"/tasks/{board['child']}/status?board={board['slug']}",
+                   json={"action": "explode"})
+    assert r.status_code == 400
+
+
+def test_add_comment(client):
+    http, board = client
+    r = http.post(f"/tasks/{board['solo']}/comments?board={board['slug']}",
+                  json={"body": "from the gantt", "author": "test"})
+    assert r.status_code == 200
+    detail = http.get(f"/tasks/{board['solo']}?board={board['slug']}").json()["task"]
+    assert any(c["body"] == "from the gantt" for c in detail["comments"])
+
+
+def test_assign_and_unassign(client):
+    http, board = client
+    r = http.patch(f"/tasks/{board['solo']}/assignee?board={board['slug']}",
+                   json={"profile": "architect"})
+    assert r.status_code == 200
+    data = http.get(f"/gantt?board={board['slug']}").json()
+    by_id = {t["id"]: t for t in data["tasks"]}
+    assert by_id[board["solo"]]["assignee"] == "architect"
+
+    r = http.patch(f"/tasks/{board['solo']}/assignee?board={board['slug']}",
+                   json={"profile": ""})
+    assert r.status_code == 200
+    data = http.get(f"/gantt?board={board['slug']}").json()
+    by_id = {t["id"]: t for t in data["tasks"]}
+    assert by_id[board["solo"]]["assignee"] is None
+
+
+def test_meta(client):
+    http, _ = client
+    r = http.get("/meta")
+    assert r.status_code == 200
+    assert r.json()["writes"] is True
+
+
+def test_gantt_all_boards(client):
+    http, board = client
+    # /gantt?board=all aggregates all boards
+    r = http.get("/gantt?board=all")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["board"] == "all"
+    by_id = {t["id"]: t for t in data["tasks"]}
+    assert board["parent"] in by_id
+    assert board["child"] in by_id
+    assert board["solo"] in by_id
+    assert by_id[board["parent"]]["board"] == board["slug"]
+
+    # Detail view of a task when board=all finds owning board
+    r_detail = http.get(f"/tasks/{board['child']}?board=all")
+    assert r_detail.status_code == 200
+    assert r_detail.json()["task"]["id"] == board["child"]
+
+    # Comment when board=all finds owning board
+    r_comment = http.post(f"/tasks/{board['solo']}/comments?board=all", json={"body": "all boards comment"})
+    assert r_comment.status_code == 200
+
+    # Bulk when board=all routes correctly
+    r_bulk = http.post("/tasks/bulk?board=all", json={"ids": [board["solo"]], "action": "blocked", "reason": "all block"})
+    assert r_bulk.status_code == 200
+    assert r_bulk.json()["results"][0]["ok"] is True

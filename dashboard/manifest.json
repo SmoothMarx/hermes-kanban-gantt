@@ -1,0 +1,8 @@
+{
+  "name": "kanban-gantt",
+  "label": "Kanban Gantt",
+  "description": "Vue Gantt (avancement dans le temps) du board kanban : choix du board, filtrage par label, barres des taches liees, archivees masquees par defaut.",
+  "icon": "Timeline",
+  "version": "1.0.0",
+  "api": "plugin_api.py"
+}

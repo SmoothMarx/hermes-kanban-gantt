@@ -1,0 +1,7 @@
+name: kanban-gantt
+version: "1.2.0"
+description: "Gantt timeline view for the Hermes kanban boards — a full /kanban-gantt desktop page with board switching, real-time status bars (created/started/done timestamps), dependencies, filters, bulk actions and a task detail drawer. Zero API keys."
+author: e-is
+kind: standalone
+requires_hermes: ">=0.19"
+platforms: []

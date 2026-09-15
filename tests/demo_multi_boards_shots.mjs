@@ -114,7 +114,7 @@ while (Date.now() < deadline) {
 const webPort = await freePort()
 const httpd = createServer(async (req, res) => {
   const raw = new URL(req.url, 'http://x').pathname.slice(1) || 'demo.html'
-  const name = raw === 'plugin.js' ? join(PLUGIN, 'plugin.js') : join(HERE, raw)
+  const name = raw === 'plugin.js' ? join(PLUGIN, 'plugin.js') : raw === 'gantt-core.js' ? join(PLUGIN, 'gantt-core.js') : join(HERE, raw)
   try {
     const body = await readFile(name)
     res.writeHead(200, {

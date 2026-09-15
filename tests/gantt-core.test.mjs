@@ -1,31 +1,22 @@
 /**
- * Unit tests for the PURE Gantt logic shipped in ../plugin.js.
+ * Unit tests for the PURE Gantt logic (src/core/gantt-core.ts).
  *
- * The plugin file is self-contained by contract (the desktop loader resolves
- * no relative imports), so these tests EXTRACT the GANTT_CORE_SRC template
- * string from the shipped source and evaluate it — the tested code is exactly
- * the shipped code (no copy drift).
+ * The core is imported from the built artifact (desktop/gantt-core.js,
+ * produced by `npm run build` from src/core/gantt-core.ts) — the tested code
+ * is exactly the shipped code (no copy drift).
  *
- * Run: node --test tests/   (or tests/run-frontend-tests.sh)
+ * Run: node --test tests/gantt-core.test.mjs
  */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const pluginSource = await readFile(join(HERE, '..', 'desktop', 'plugin.js'), 'utf8')
-
-const m = pluginSource.match(/const GANTT_CORE_SRC = String\.raw`([\s\S]*?)`/)
-assert.ok(m, 'GANTT_CORE_SRC template not found in plugin.js — logic moved?')
-const coreSrc = m[1]
-
-// Evaluate the core source and get its bindings.
-const core = new Function(
-  `${coreSrc};\nreturn { barRange, taskBars, shortId, matchesSearch, buildRows, computeDomain, ticks, tickUnit, statusTone, DAY, MIN_BAR }`
-)()
+// import() (dynamic) so this file also runs when the artifact was built with
+// ESM export statements.
+const core = await import(join(HERE, '..', 'desktop', 'gantt-core.js'))
 
 const { barRange, taskBars, shortId, matchesSearch, buildRows, computeDomain, ticks, tickUnit, DAY, MIN_BAR } = core
 const NOW = 1_800_000_000

@@ -43,31 +43,26 @@ tests/
 
 ## Steps, in order
 
-1. **Toolchain** — add `package.json` (private), esbuild script:
-   `esbuild src/main.tsx --bundle --format=esm --outfile=desktop/plugin.js
-   --external:@hermes/plugin-sdk --external:react --external:react/jsx-runtime
-   --jsx=automatic`. CI: build + `node --check` + tests, fail if
-   `desktop/plugin.js` is out of date.
-2. **Extract the pure core first** (lowest risk): move `GANTT_CORE_SRC` contents
-   into `src/core/timeline.ts` as real exported functions; the template string
-   disappears; `tests/gantt-core.test.mjs` imports the TS module through the
-   same bundler (or stays on the artifact). Behavior-identical, no UI change.
-3. **Split the renderer** into the `ui/` components above, one commit per
-   component, verifying after each with the existing manual checklist
-   (titlebar switcher, docked drawer, menus, sticky labels).
-4. **Type the SDK boundary**: a small `sdk.d.ts` declaring the subset of
-   `@hermes/plugin-sdk` we use (atoms, useQuery, DropdownMenu*, areas…) until
-   upstream ships types.
-5. **Tests to Hermes expectations**:
-   - keep pytest backend suite as-is;
-   - port `test_sticky.mjs` (playwright, optional) and add newswire-style ESM
-     render smoke tests with `.stubs/` (react/sdk/jsx-runtime) so the default
-     run has no browser dependency;
-   - add core unit tests for every date/zoom edge case (DST boundaries,
-     min-bar width, archived filtering).
-6. **Backend notes** (smaller): split `plugin_api.py` routes into a package
-   (`routes/boards.py`, `routes/gantt.py`, `routes/tasks.py`) if it keeps
-   growing; keep the single-file option — it is still fine at this size.
+1. [x] **Toolchain** — DONE: `package.json` + `scripts/build.mjs` (esbuild),
+   `npm run build` → `desktop/plugin.js` + `desktop/gantt-core.js`, externals
+   `@hermes/plugin-sdk` / `react` / `react/jsx-runtime`; `npm run check`
+   (syntax), CI drift guard: rebuild + `git diff --exit-code desktop/`.
+2. [x] **Extract the pure core** — DONE: `src/core/gantt-core.ts` (real
+   exported functions, no template string, no eval). `desktop/gantt-core.js`
+   is the built artifact consumed by `tests/gantt-core.test.mjs` and the demo.
+3. [~] **Split the renderer** — started: the whole renderer lives in
+   `src/main.ts` (byte-identical logic to the pre-port plugin.js, imports the
+   core module). Remaining: mechanically convert `jsx()` calls to JSX per
+   component (`GanttPage`, `TaskRow`, `Bars`, `Drawer`, `menus`), one commit
+   per component with the manual checklist after each.
+4. [x] **Type the SDK boundary** — DONE: `src/sdk.d.ts` (loose ambient types
+   for the SDK subset in use; tighten per module later).
+5. [~] **Tests to Hermes expectations** — core tests now run against the
+   built artifact without any eval; sticky-header UI test skips cleanly
+   without playwright. TODO: newswire-style `.stubs/` ESM render smoke tests
+   (register + page render without a browser); core unit tests for DST
+   boundaries, min-bar width, archived filtering.
+6. [ ] **Backend notes** — split `plugin_api.py` only if it keeps growing.
 
 ## What NOT to do yet
 
@@ -81,5 +76,6 @@ tests/
   Mitigation: CI check (rebuild + `git diff --exit-code desktop/plugin.js`).
 - **Radix/Slot pitfalls** (`asChild` single child) and Electron drag regions
   are regression-prone — keep the AGENTS.md gotchas and the UI smoke tests.
-- The GANTT_CORE_SRC extraction trick is what the demo uses; after the split,
-  the demo server should serve the built artifact instead.
+- The GANTT_CORE_SRC extraction trick is gone: the core is a real module
+  (`src/core/gantt-core.ts`) and the demo imports the built
+  `desktop/gantt-core.js`. The demo server serves both halves.

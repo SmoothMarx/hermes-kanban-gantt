@@ -1,0 +1,16 @@
+{
+  "name": "hermes-kanban-gantt",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Gantt timeline view for the Hermes kanban boards (unified plugin: desktop/ + dashboard/).",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check desktop/plugin.js && node --check desktop/gantt-core.js",
+    "test": "node --test tests/gantt-core.test.mjs tests/test_sticky.mjs && bash tests/run_tests.sh",
+    "demo": "node tests/demo-server.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.2"
+  }
+}

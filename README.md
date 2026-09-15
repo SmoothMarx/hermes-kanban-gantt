@@ -45,11 +45,26 @@ __init__.py          no-op register() (capability probe only)
 dashboard/           backend — FastAPI router → /api/plugins/kanban-gantt/
   manifest.json      name/label/version/api pointer
   plugin_api.py      gantt snapshot, boards, task detail, status/comment routes
-desktop/
-  plugin.js          renderer — plain ESM, loaded uncompiled by Hermes Desktop
+src/                 AUTHORING SOURCES (TypeScript)
+  main.ts            renderer entry — bundled to desktop/plugin.js by esbuild
+  core/gantt-core.ts pure timeline logic (no React/SDK)
+  sdk.d.ts           ambient types for the SDK subset in use
+desktop/             BUILD ARTIFACTS — loaded uncompiled by Hermes Desktop
+  plugin.js          bundled renderer (do not edit; run `npm run build`)
+  gantt-core.js      bundled pure core (tests + demo import it)
 install.sh           optional convenience installer (desktop half + backend half)
 tests/               node:test suite (pure gantt core, sticky label), pytest backend
                      suite, demo server (one port: demo + API + plugin.js)
+```
+
+Build & test:
+
+```bash
+npm install            # esbuild
+npm run build          # src/ → desktop/
+npm run check          # syntax-gate the artifacts
+node --test tests/gantt-core.test.mjs tests/test_sticky.mjs
+bash tests/run_tests.sh
 ```
 
 ## Architecture

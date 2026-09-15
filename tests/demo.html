@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
   kanban-gantt demo page — renders the Gantt with the EXACT pure logic shipped
-  in plugin.js (extracts GANTT_CORE_SRC at runtime), against the standalone
+  in desktop/gantt-core.js (built from src/core/), against the standalone
   backend (plugin_api.py). Used by tests/demo_playwright.py to prove the
   rendering without the desktop app.
 
@@ -273,11 +273,8 @@ const params = new URLSearchParams(location.search)
 // default: same-origin /api proxy (demo-server.mjs); can be overridden with ?api=http://…
 const API = (params.get('api') || `${location.origin}/api`).replace(/\/+$/, '')
 
-// ── load the SHIPPED pure logic from plugin.js (no copy) ──
-const pluginSrc = await (await fetch('./plugin.js', { cache: 'no-store' })).text()
-const m = pluginSrc.match(/const GANTT_CORE_SRC = String\.raw`([\s\S]*?)`/)
-if (!m) { document.getElementById('status').textContent = 'GANTT_CORE_SRC introuvable dans plugin.js'; throw new Error('no core') }
-const core = new Function(`${m[1]};\nreturn { barRange, taskBars, shortId, matchesSearch, buildRows, computeDomain, ticks, tickUnit, statusTone, DAY, MIN_BAR }`)()
+// ── load the SHIPPED pure logic from the built core module (no copy) ──
+const core = await import('./gantt-core.js')
 window.__KG_CORE = core
 
 const $ = id => document.getElementById(id)

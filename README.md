@@ -27,12 +27,7 @@ TÂCHES        │ LUN 7 ── MAR 8 ── MER 9 ── JEU 10 ── VEN 11 �
 ## Install
 
 ```bash
-git clone https://github.com/e-is/hermes-kanban-gantt ~/.hermes/plugins/kanban-gantt/
-# renderer half — either let Hermes lift it automatically on next start, or run:
-~/.hermes/plugins/kanban-gantt/install.sh
-# enable the backend (plugins.enabled must be a real YAML list):
-#   edit ~/.hermes/config.yaml → plugins: enabled: [- kanban-gantt]
-# then restart Hermes Desktop so the backend mounts.
+hermes plugins install e-is/hermes-kanban-gantt
 ```
 
 Verify: `Mounted plugin API routes: /api/plugins/kanban-gantt/` in `~/.hermes/logs/agent.log`, then ⌘K → « Kanban Gantt ».
@@ -89,6 +84,12 @@ node --test tests/gantt-core.test.mjs tests/test_sticky.mjs
 # backend (isolated venv; HERMES_AGENT_HOME points at a hermes-agent checkout)
 tests/run_tests.sh
 ```
+
+## Screenshots
+
+![](docs/screenshot-fr-01.png)
+![](docs/screenshot-fr-02-details.png)
+
 
 ## License
 

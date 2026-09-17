@@ -52,10 +52,18 @@ import {
 } from '@hermes/plugin-sdk'
 import { useMemo, useRef, useEffect, useState } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
+import {
+  setPluginDoors,
+  LABEL_W, LABEL_W_MIN, LABEL_W_MAX, DRAWER_W_MIN, DRAWER_W_MAX,
+  $baseUrl, $boardSlug, $labelW, $drawerW, $drawerDocked, $openTaskId,
+  apiBase, apiFetch, fetchBoards, fetchGantt, fetchTask, applyBase
+} from './state'
+import { getStorage } from './state'
+import { GANTT_LOCALES, useGanttI18n } from './i18n'
+import { TitlebarBoardSwitcher } from './ui/TitlebarBoardSwitcher'
 
 const ID = 'kanban-gantt'
 
-const LABEL_W = 300              // px — left task-name column (sticky)
 const ROW_H = 28                 // px — row height
 const BAR_H = 14                 // px — bar height inside a row
 const MIN_BAR_SEC = 2 * 3600     // 2h — minimum visible bar length
@@ -71,60 +79,12 @@ const ZOOM_STEP = 0.05
 
 import { barRange, taskBars, shortId, matchesSearch, buildRows, computeDomain, ticks, tickUnit, statusTone, DAY, MIN_BAR } from './core/gantt-core.ts'
 
-/* ──────────────────────────────── data doors ──────────────────────────────── */
-
-let rest = null
-let storage = null
-
-/** Optional custom backend base URL ('' = the plugin's own namespace). */
-const $baseUrl = atom('')
-/** Slug of the selected kanban board ('' until chosen). */
-const $boardSlug = atom('')
-/** Width (px) of the sticky task-name column — resizable via its drag handle. */
-const $labelW = atom(LABEL_W)
-/** Width (px) of the task drawer — resizable via its left-edge handle. */
-const $drawerW = atom(416)
-/** Whether the task drawer docks beside the gantt instead of overlaying it. */
-const $drawerDocked = atom(false)
-const LABEL_W_MIN = 160
-const LABEL_W_MAX = 640
-const DRAWER_W_MIN = 320
-const DRAWER_W_MAX = 720
-/** Open task id in the drawer (null = closed). */
-const $openTaskId = atom(null)
-
-const apiBase = () => ($baseUrl.get() || '').trim().replace(/\/+$/, '')
-
-/** GET/POST/PATCH through the plugin namespace, or an absolute custom base. */
-const apiFetch = (path, init) => {
-  const base = apiBase()
-  if (base) {
-    return fetch(`${base}${path}`, {
-      method: init?.method || 'GET',
-      headers: init?.body != null ? { 'Content-Type': 'application/json' } : undefined,
-      body: init?.body != null ? JSON.stringify(init.body) : undefined
-    }).then(r => {
-      if (!r.ok) throw new Error(`${init?.method || 'GET'} ${path} → HTTP ${r.status}`)
-      return r.json()
-    })
-  }
-  if (!rest) return Promise.reject(new Error('backend not ready'))
-  return rest(path, init?.body != null
-    ? { method: init.method, body: init.body }
-    : undefined)
-}
-
-const fetchBoards = () => apiFetch('/boards')
-const fetchGantt = board =>
-  apiFetch(`/gantt${board ? `?board=${encodeURIComponent(board)}` : ''}`)
-const fetchTask = (id, board) =>
-  apiFetch(`/tasks/${encodeURIComponent(id)}${board ? `?board=${encodeURIComponent(board)}` : ''}`)
 
 /** Apply a new backend base URL and refetch everything. */
 const applyBase = value => {
   const next = (value || '').trim().replace(/\/+$/, '')
   $baseUrl.set(next)
-  if (storage) storage.set('baseUrl', next)
+  if (getStorage()) getStorage().set('baseUrl', next)
 }
 
 /* ──────────────────────────────── rendering bits ──────────────────────────── */
@@ -259,7 +219,7 @@ function ResizeHandle({ get, set, min, max, resetTo, storageKey, growDirection =
       drag.current = null
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
-      if (storage) storage.set(storageKey, String(get()))
+      if (getStorage()) getStorage().set(storageKey, String(get()))
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -270,7 +230,7 @@ function ResizeHandle({ get, set, min, max, resetTo, storageKey, growDirection =
       e.preventDefault()
       e.stopPropagation()
       set(resetTo)
-      if (storage) storage.set(storageKey, String(resetTo))
+      if (getStorage()) getStorage().set(storageKey, String(resetTo))
     },
     className: cn(
       'absolute z-40 touch-none transition-colors hover:bg-(--ui-accent)/30 active:bg-(--ui-accent)/50 cursor-col-resize'
@@ -574,187 +534,6 @@ function WeekendBands({ min, max, pxPerSec }) {
 
 /* ─────────────────────────── i18n locale bundles ─────────────────────────── */
 
-const GANTT_LOCALES = {
-  en: {
-    title: 'Kanban Gantt',
-    nav: 'Kanban Gantt',
-    openCommand: 'Kanban Gantt: Open timeline view',
-    refresh: 'Refresh',
-    backend: 'Backend:',
-    allBoards: 'All boards',
-    board: 'Board:',
-    noBoard: 'no board',
-    dockDrawer: 'Dock the drawer next to the gantt',
-    undockDrawer: 'Undock the drawer',
-    filterCards: 'Filter cards…',
-    zoomTimeline: 'Zoom timeline',
-    nothingToDisplay: 'Nothing to display',
-    noTasksMatch: 'No tasks match the search or filter criteria.',
-    emptyBoard: 'No data',
-    emptyBoardDesc: board => `Board ${board} returned no tasks.`,
-    cannotLoadBoard: 'Cannot load board',
-    cannotLoadBoardDesc: base => `Backend kanban-gantt unreachable${base ? ` (${base})` : ''} — plugin enabled? gateway restarted?`,
-    taskUnreadable: 'Task unreadable',
-    taskUnreadableDesc: 'Backend did not respond.',
-    nTasksTotal: (n, status) => `${n} task${n > 1 ? 's' : ''} in total (dominant priority: ${status})`,
-    nBlockedWarning: n => `${n} blocked task${n > 1 ? 's (requires attention)' : ' (requires attention)'}`,
-    nSelected: n => `${n} selected`,
-    statusLabel: 'Status:',
-    assignLabel: 'Assign:',
-    assignPlaceholder: 'Profile…',
-    clearSelection: 'Clear selection (Esc)',
-    filters: 'Filters',
-    profiles: 'Profiles',
-    allProfiles: 'All profiles',
-    statuses: 'Statuses',
-    showArchived: 'Show archived',
-    unassigned: 'Unassigned',
-    unassignedEmpty: 'Unassigned (empty)',
-    reassigned: '(reassigned)',
-    dependencies: 'Dependencies:',
-    description: 'Description',
-    result: 'Result',
-    latestSummary: 'Latest summary',
-    runs: n => `Runs (${n})`,
-    show: 'Show',
-    hide: 'Hide',
-    comments: n => `Comments (${n})`,
-    showPreviousComments: n => `Show ${n} previous comment${n > 1 ? 's' : ''}`,
-    addCommentPlaceholder: 'Add a comment…',
-    send: 'Send',
-    activity: n => `Activity (${n})`,
-    action: 'Action:',
-    copyTaskId: 'Copy task id',
-    copyTitle: 'Copy title',
-    moveToShort: 'Move to',
-    unassignAction: 'Unassign',
-    delete: 'Delete',
-    confirmDelete: id => `Permanently delete task ${id}?`,
-    col: {
-      triage: 'Triage',
-      todo: 'Todo',
-      scheduled: 'Scheduled',
-      ready: 'Ready',
-      running: 'Running',
-      blocked: 'Blocked',
-      review: 'Review',
-      done: 'Done',
-      archived: 'Archived'
-    },
-    actions: {
-      done: 'Done',
-      blocked: 'Block',
-      unblock: 'Unblock',
-      review: 'Request review',
-      reopen: 'Reopen',
-      archive: 'Archive',
-      ready: 'Set to Ready',
-      todo: 'Set to Todo',
-      triage: 'Send to Triage',
-      delete: 'Delete',
-      restore: 'Restore'
-    }
-  },
-  fr: {
-    title: 'Gantt Kanban',
-    nav: 'Gantt Kanban',
-    openCommand: 'Gantt Kanban : ouvrir la vue chronologique',
-    refresh: 'Actualiser',
-    backend: 'Backend :',
-    allBoards: 'Tous les boards',
-    board: 'Board :',
-    noBoard: 'aucun board',
-    dockDrawer: 'Ancrer la vue à côté du gantt',
-    undockDrawer: 'Détacher la vue',
-    filterCards: 'Filtrer les tâches…',
-    zoomTimeline: 'Zoom timeline',
-    nothingToDisplay: 'Rien à afficher',
-    noTasksMatch: 'Aucune tâche ne correspond aux critères de recherche ou de filtre.',
-    emptyBoard: 'Aucune donnée',
-    emptyBoardDesc: board => `Le board ${board} ne renvoie aucune tâche.`,
-    cannotLoadBoard: 'Impossible de charger le board',
-    cannotLoadBoardDesc: base => `Backend kanban-gantt injoignable${base ? ` (${base})` : ''} — plugin activé ? gateway relancé ?`,
-    taskUnreadable: 'Tâche illisible',
-    taskUnreadableDesc: 'Le backend n’a pas répondu.',
-    nTasksTotal: (n, status) => `${n} tâche${n > 1 ? 's au total' : ' au total'} (état prioritaire : ${status})`,
-    nBlockedWarning: n => `${n} tâche${n > 1 ? 's bloquées (nécessitent une intervention)' : ' bloquée (nécessite une intervention)'}`,
-    nSelected: n => `${n} sélectionnée${n > 1 ? 's' : ''}`,
-    statusLabel: 'État :',
-    assignLabel: 'Assigner :',
-    assignPlaceholder: 'Profil…',
-    clearSelection: 'Tout désélectionner (Échap)',
-    filters: 'Filtres',
-    profiles: 'Profils',
-    allProfiles: 'Tous les profils',
-    statuses: 'États',
-    showArchived: 'Afficher les archivés',
-    unassigned: 'Non assigné',
-    unassignedEmpty: 'Non assigné (vide)',
-    reassigned: '(réaffecté)',
-    dependencies: 'Dépendances :',
-    description: 'Description',
-    result: 'Résultat',
-    latestSummary: 'Dernier résumé',
-    runs: n => `Exécutions (${n})`,
-    show: 'Afficher',
-    hide: 'Masquer',
-    comments: n => `Commentaires (${n})`,
-    showPreviousComments: n => `Afficher les ${n} commentaires précédents`,
-    addCommentPlaceholder: 'Ajouter un commentaire…',
-    send: 'Envoyer',
-    activity: n => `Activité (${n})`,
-    action: 'Action :',
-    copyTaskId: 'Copier l’ID de tâche',
-    copyTitle: 'Copier le titre',
-    moveToShort: 'Déplacer',
-    unassignAction: 'Désassigner',
-    delete: 'Supprimer',
-    confirmDelete: id => `Supprimer définitivement la tâche ${id} ?`,
-    col: {
-      triage: 'Triage',
-      todo: 'Todo',
-      scheduled: 'Planifiée',
-      ready: 'Prête',
-      running: 'En cours',
-      blocked: 'Bloquée',
-      review: 'En revue',
-      done: 'Terminée',
-      archived: 'Archivée'
-    },
-    actions: {
-      done: 'Terminer',
-      blocked: 'Bloquer',
-      unblock: 'Débloquer',
-      review: 'Demander review',
-      reopen: 'Réouvrir',
-      archive: 'Archiver',
-      ready: 'Mettre à Ready',
-      todo: 'Mettre à Todo',
-      triage: 'Renvoyer en triage',
-      delete: 'Supprimer',
-      restore: 'Restaurer'
-    }
-  }
-}
-
-function bindI18n(t, template, prefix = '') {
-  const out = {}
-  for (const [key, value] of Object.entries(template)) {
-    const path = prefix ? `${prefix}.${key}` : key
-    out[key] =
-      typeof value === 'function'
-        ? (...args) => t(path, ...args)
-        : value && typeof value === 'object'
-          ? bindI18n(t, value, path)
-          : t(path)
-  }
-  return out
-}
-
-function useGanttI18n() {
-  const t = usePluginI18n(ID)
-  return useMemo(() => bindI18n(t, GANTT_LOCALES.en), [t])
-}
 
 /* ─────────────────────────── task drawer (read+write) ─────────────────────── */
 
@@ -1410,84 +1189,6 @@ function TaskDrawer({ taskId, board, onClose, assignees = [], docked = false, on
   })
 }
 
-/**
- * Board switcher projected into the desktop titlebar band (titleBar.center)
- * while the gantt page is mounted — mirrors the official kanban plugin's
- * placement so both switchers live in the same spot. Content differs: this
- * one offers the plugin's own "all boards" aggregate mode.
- */
-function TitlebarBoardSwitcher() {
-  const board = useValue($boardSlug)
-  const i18n = useGanttI18n()
-  const queryClient = useQueryClient()
-  const { data } = useQuery({
-    queryKey: ['kanban-gantt', 'boards', apiBase()],
-    queryFn: () => apiFetch('/boards'),
-    refetchInterval: 5 * 60_000
-  })
-  const boards = data?.boards || []
-  const isAllBoards = board === 'all' || board === '*'
-  const current = isAllBoards
-    ? { slug: 'all', label: i18n.allBoards }
-    : boards.find(b => b.slug === (board || data?.current))
-  const setBoard = slug => {
-    $boardSlug.set(slug)
-    if (storage) storage.set('board', slug)
-    void queryClient.invalidateQueries({ queryKey: ['kanban-gantt', 'gantt'] })
-  }
-
-  return jsxs(DropdownMenu, {
-    children: [
-      jsx(DropdownMenuTrigger, {
-        asChild: true,
-        children: jsx(Button, {
-   className: 'h-7 max-w-56 gap-1.5 px-2 [-webkit-app-region:no-drag]',
-   size: 'sm',
-   variant: 'ghost',
-          // Single-element child: Radix `asChild` (Slot) rejects arrays.
-          children: jsx('span', {
-            className: 'flex min-w-0 items-center gap-1.5',
-            children: [
-              jsx('span', { className: 'min-w-0 flex-1 truncate text-[0.75rem] font-medium leading-none', children: current?.label || '—' }),
-              current && typeof current.total === 'number'
-                ? jsx('span', { className: 'text-[0.6875rem] tabular-nums text-(--ui-text-quaternary)', children: `${current.total}` })
-                : null,
-              jsx('span', { className: 'text-[9px] opacity-60', children: '▾' })
-            ]
-          })
-        })
-      }),
-      jsxs(DropdownMenuContent, {
-        align: 'center',
-        className: 'min-w-[12rem] p-1',
-        children: [
-          jsxs(DropdownMenuItem, {
-            key: 'all',
-            onClick: () => setBoard('all'),
-            className: 'flex items-center justify-between text-xs py-1.5 cursor-pointer font-medium border-b border-(--ui-stroke-tertiary) mb-1',
-            children: [
-              jsx('span', { className: cn('flex-1 truncate', isAllBoards && 'font-semibold text-(--ui-accent)'), children: i18n.allBoards }),
-              isAllBoards ? jsx(Codicon, { name: 'check', size: '0.8rem', className: 'ml-2' }) : null
-            ]
-          }),
-          ...boards.map(b => {
-            const isCurrent = !isAllBoards && b.slug === (board || data?.current)
-            return jsxs(DropdownMenuItem, {
-              key: b.slug,
-              onClick: () => setBoard(b.slug),
-              className: 'flex items-center justify-between text-xs py-1.5 cursor-pointer',
-              children: [
-                jsx('span', { className: cn('flex-1 truncate', isCurrent && 'font-semibold text-(--ui-accent)'), children: b.label || b.slug }),
-                isCurrent ? jsx(Codicon, { name: 'check', size: '0.8rem', className: 'ml-2' }) : null
-              ]
-            })
-          })
-        ]
-      })
-    ]
-  })
-}
-
 /* ───────────────────────────────────── page ───────────────────────────────── */
 
 export function KanbanGanttPage() {
@@ -1514,7 +1215,7 @@ export function KanbanGanttPage() {
   const [showArchived, setShowArchived] = useState(false)
   const [selectedAssignees, setSelectedAssignees] = useState(() => new Set())
   const [disabledStatuses, setDisabledStatuses] = useState(() => {
-    const saved = storage ? storage.get('disabledStatuses', null) : null
+    const saved = getStorage() ? getStorage().get('disabledStatuses', null) : null
     return Array.isArray(saved) ? new Set(saved) : new Set()
   })
   const [search, setSearch] = useState('')
@@ -1522,7 +1223,7 @@ export function KanbanGanttPage() {
   const [bulkAssignee, setBulkAssignee] = useState('')
   const lastCheckedIdRef = useRef(null)
   const [zoom, setZoom] = useState(() => {
-    const saved = storage ? storage.get('zoom', null) : null
+    const saved = getStorage() ? getStorage().get('zoom', null) : null
     return saved != null && Number.isFinite(Number(saved)) ? Number(saved) : 1
   })
   const containerRef = useRef(null)
@@ -1548,7 +1249,7 @@ export function KanbanGanttPage() {
       const next = new Set(prev)
       if (next.has(status)) next.delete(status)
       else next.add(status)
-      if (storage) storage.set('disabledStatuses', [...next])
+      if (getStorage()) getStorage().set('disabledStatuses', [...next])
       return next
     })
   }
@@ -1624,12 +1325,12 @@ export function KanbanGanttPage() {
 
   const handleZoomChange = val => {
     setZoom(val)
-    if (storage) storage.set('zoom', val)
+    if (getStorage()) getStorage().set('zoom', val)
   }
 
   const setBoard = slug => {
     $boardSlug.set(slug)
-    if (storage) storage.set('board', slug)
+    if (getStorage()) getStorage().set('board', slug)
     setSearch('')
     void queryClient.invalidateQueries({ queryKey: ['kanban-gantt', 'gantt'] })
   }
@@ -1931,7 +1632,7 @@ export function KanbanGanttPage() {
             onToggleDock: () => {
               const next = !drawerDocked
               $drawerDocked.set(next)
-              if (storage) storage.set('drawerDocked', next ? '1' : '0')
+              if (getStorage()) getStorage().set('drawerDocked', next ? '1' : '0')
             }
           })
         : null
@@ -1944,8 +1645,7 @@ const plugin = {
   name: 'Kanban Gantt',
   description: 'Vue Gantt (avancement dans le temps) du board kanban — recherche, zoom, détail + actions de la tâche.',
   register(ctx) {
-    rest = ctx.rest
-    storage = ctx.storage
+    setPluginDoors(ctx.rest, ctx.storage)
     $baseUrl.set((ctx.storage.get('baseUrl', '') || '').replace(/\/+$/, ''))
     $boardSlug.set(ctx.storage.get('board', '') || '')
     $labelW.set(Number(ctx.storage.get('labelW', LABEL_W)) || LABEL_W)

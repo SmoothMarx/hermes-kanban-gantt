@@ -24,6 +24,7 @@ const common = {
   charset: 'utf8',
   legalComments: 'none',
   logLevel: 'info',
+  jsx: 'automatic',
   external: ['@hermes/plugin-sdk', 'react', 'react/jsx-runtime']
 }
 

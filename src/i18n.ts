@@ -1,0 +1,189 @@
+import { useMemo } from 'react'
+import { usePluginI18n } from '@hermes/plugin-sdk'
+
+const ID = 'kanban-gantt'
+
+const GANTT_LOCALES = {
+  en: {
+    title: 'Kanban Gantt',
+    nav: 'Kanban Gantt',
+    openCommand: 'Kanban Gantt: Open timeline view',
+    refresh: 'Refresh',
+    backend: 'Backend:',
+    allBoards: 'All boards',
+    board: 'Board:',
+    noBoard: 'no board',
+    dockDrawer: 'Dock the drawer next to the gantt',
+    undockDrawer: 'Undock the drawer',
+    filterCards: 'Filter cards…',
+    zoomTimeline: 'Zoom timeline',
+    nothingToDisplay: 'Nothing to display',
+    noTasksMatch: 'No tasks match the search or filter criteria.',
+    emptyBoard: 'No data',
+    emptyBoardDesc: board => `Board ${board} returned no tasks.`,
+    cannotLoadBoard: 'Cannot load board',
+    cannotLoadBoardDesc: base => `Backend kanban-gantt unreachable${base ? ` (${base})` : ''} — plugin enabled? gateway restarted?`,
+    taskUnreadable: 'Task unreadable',
+    taskUnreadableDesc: 'Backend did not respond.',
+    nTasksTotal: (n, status) => `${n} task${n > 1 ? 's' : ''} in total (dominant priority: ${status})`,
+    nBlockedWarning: n => `${n} blocked task${n > 1 ? 's (requires attention)' : ' (requires attention)'}`,
+    nSelected: n => `${n} selected`,
+    statusLabel: 'Status:',
+    assignLabel: 'Assign:',
+    assignPlaceholder: 'Profile…',
+    clearSelection: 'Clear selection (Esc)',
+    filters: 'Filters',
+    profiles: 'Profiles',
+    allProfiles: 'All profiles',
+    statuses: 'Statuses',
+    showArchived: 'Show archived',
+    unassigned: 'Unassigned',
+    unassignedEmpty: 'Unassigned (empty)',
+    reassigned: '(reassigned)',
+    dependencies: 'Dependencies:',
+    description: 'Description',
+    result: 'Result',
+    latestSummary: 'Latest summary',
+    runs: n => `Runs (${n})`,
+    show: 'Show',
+    hide: 'Hide',
+    comments: n => `Comments (${n})`,
+    showPreviousComments: n => `Show ${n} previous comment${n > 1 ? 's' : ''}`,
+    addCommentPlaceholder: 'Add a comment…',
+    send: 'Send',
+    activity: n => `Activity (${n})`,
+    action: 'Action:',
+    copyTaskId: 'Copy task id',
+    copyTitle: 'Copy title',
+    moveToShort: 'Move to',
+    unassignAction: 'Unassign',
+    delete: 'Delete',
+    confirmDelete: id => `Permanently delete task ${id}?`,
+    col: {
+      triage: 'Triage',
+      todo: 'Todo',
+      scheduled: 'Scheduled',
+      ready: 'Ready',
+      running: 'Running',
+      blocked: 'Blocked',
+      review: 'Review',
+      done: 'Done',
+      archived: 'Archived'
+    },
+    actions: {
+      done: 'Done',
+      blocked: 'Block',
+      unblock: 'Unblock',
+      review: 'Request review',
+      reopen: 'Reopen',
+      archive: 'Archive',
+      ready: 'Set to Ready',
+      todo: 'Set to Todo',
+      triage: 'Send to Triage',
+      delete: 'Delete',
+      restore: 'Restore'
+    }
+  },
+  fr: {
+    title: 'Gantt Kanban',
+    nav: 'Gantt Kanban',
+    openCommand: 'Gantt Kanban : ouvrir la vue chronologique',
+    refresh: 'Actualiser',
+    backend: 'Backend :',
+    allBoards: 'Tous les boards',
+    board: 'Board :',
+    noBoard: 'aucun board',
+    dockDrawer: 'Ancrer la vue à côté du gantt',
+    undockDrawer: 'Détacher la vue',
+    filterCards: 'Filtrer les tâches…',
+    zoomTimeline: 'Zoom timeline',
+    nothingToDisplay: 'Rien à afficher',
+    noTasksMatch: 'Aucune tâche ne correspond aux critères de recherche ou de filtre.',
+    emptyBoard: 'Aucune donnée',
+    emptyBoardDesc: board => `Le board ${board} ne renvoie aucune tâche.`,
+    cannotLoadBoard: 'Impossible de charger le board',
+    cannotLoadBoardDesc: base => `Backend kanban-gantt injoignable${base ? ` (${base})` : ''} — plugin activé ? gateway relancé ?`,
+    taskUnreadable: 'Tâche illisible',
+    taskUnreadableDesc: 'Le backend n’a pas répondu.',
+    nTasksTotal: (n, status) => `${n} tâche${n > 1 ? 's au total' : ' au total'} (état prioritaire : ${status})`,
+    nBlockedWarning: n => `${n} tâche${n > 1 ? 's bloquées (nécessitent une intervention)' : ' bloquée (nécessite une intervention)'}`,
+    nSelected: n => `${n} sélectionnée${n > 1 ? 's' : ''}`,
+    statusLabel: 'État :',
+    assignLabel: 'Assigner :',
+    assignPlaceholder: 'Profil…',
+    clearSelection: 'Tout désélectionner (Échap)',
+    filters: 'Filtres',
+    profiles: 'Profils',
+    allProfiles: 'Tous les profils',
+    statuses: 'États',
+    showArchived: 'Afficher les archivés',
+    unassigned: 'Non assigné',
+    unassignedEmpty: 'Non assigné (vide)',
+    reassigned: '(réaffecté)',
+    dependencies: 'Dépendances :',
+    description: 'Description',
+    result: 'Résultat',
+    latestSummary: 'Dernier résumé',
+    runs: n => `Exécutions (${n})`,
+    show: 'Afficher',
+    hide: 'Masquer',
+    comments: n => `Commentaires (${n})`,
+    showPreviousComments: n => `Afficher les ${n} commentaires précédents`,
+    addCommentPlaceholder: 'Ajouter un commentaire…',
+    send: 'Envoyer',
+    activity: n => `Activité (${n})`,
+    action: 'Action :',
+    copyTaskId: 'Copier l’ID de tâche',
+    copyTitle: 'Copier le titre',
+    moveToShort: 'Déplacer',
+    unassignAction: 'Désassigner',
+    delete: 'Supprimer',
+    confirmDelete: id => `Supprimer définitivement la tâche ${id} ?`,
+    col: {
+      triage: 'Triage',
+      todo: 'Todo',
+      scheduled: 'Planifiée',
+      ready: 'Prête',
+      running: 'En cours',
+      blocked: 'Bloquée',
+      review: 'En revue',
+      done: 'Terminée',
+      archived: 'Archivée'
+    },
+    actions: {
+      done: 'Terminer',
+      blocked: 'Bloquer',
+      unblock: 'Débloquer',
+      review: 'Demander review',
+      reopen: 'Réouvrir',
+      archive: 'Archiver',
+      ready: 'Mettre à Ready',
+      todo: 'Mettre à Todo',
+      triage: 'Renvoyer en triage',
+      delete: 'Supprimer',
+      restore: 'Restaurer'
+    }
+  }
+}
+
+
+function bindI18n(t, template, prefix = '') {
+  const out = {}
+  for (const [key, value] of Object.entries(template)) {
+    const path = prefix ? `${prefix}.${key}` : key
+    out[key] =
+      typeof value === 'function'
+        ? (...args) => t(path, ...args)
+        : value && typeof value === 'object'
+          ? bindI18n(t, value, path)
+          : t(path)
+  }
+  return out
+}
+
+function useGanttI18n() {
+  const t = usePluginI18n(ID)
+  return useMemo(() => bindI18n(t, GANTT_LOCALES.en), [t])
+}
+
+export { GANTT_LOCALES, useGanttI18n }

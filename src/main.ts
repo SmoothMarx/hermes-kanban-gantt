@@ -1012,7 +1012,7 @@ function TaskDrawer({ taskId, board, onClose, assignees = [], docked = false, on
                 ? jsxs('div', { className: 'flex flex-col gap-1', children: [
                     jsx('div', { className: 'text-[10px] uppercase font-semibold text-(--ui-text-tertiary)', children: i18n.description }),
                     jsx('div', {
-                      className: 'text-[11px] prose prose-sm max-w-none border border-(--ui-stroke-tertiary) rounded p-2 bg-(--ui-bg-subtle, transparent)',
+                      className: 'text-[11px] prose prose-sm kg-prose max-w-none border border-(--ui-stroke-tertiary) rounded p-2 bg-(--ui-bg-subtle, transparent)',
                       children: jsx(Streamdown, { children: data.task.body })
                     })
                   ] })
@@ -1023,7 +1023,7 @@ function TaskDrawer({ taskId, board, onClose, assignees = [], docked = false, on
                 ? jsxs('div', { className: 'flex flex-col gap-1', children: [
                     jsx('div', { className: 'text-[10px] uppercase font-semibold text-(--ui-text-tertiary)', children: i18n.result }),
                     jsx('div', {
-                      className: 'text-[11px] prose prose-sm max-w-none border border-(--ui-stroke-tertiary) rounded p-2 bg-(--ui-bg-subtle, transparent)',
+                      className: 'text-[11px] prose prose-sm kg-prose max-w-none border border-(--ui-stroke-tertiary) rounded p-2 bg-(--ui-bg-subtle, transparent)',
                       children: jsx(Streamdown, { children: data.task.result })
                     })
                   ] })
@@ -1035,7 +1035,7 @@ function TaskDrawer({ taskId, board, onClose, assignees = [], docked = false, on
                     jsx('div', { className: 'text-[10px] uppercase font-semibold text-(--ui-text-tertiary)', children: i18n.latestSummary }),
                     jsx('div', {
                       className: cn(
-                        'text-[11px] prose prose-sm max-w-none rounded p-2.5 transition-colors',
+                        'text-[11px] prose prose-sm kg-prose max-w-none rounded p-2.5 transition-colors',
                         data?.task?.status === 'blocked'
                           ? 'border border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
                           : data?.task?.status === 'done' || data?.task?.status === 'archived'
@@ -1092,7 +1092,7 @@ function TaskDrawer({ taskId, board, onClose, assignees = [], docked = false, on
                             dateStr ? jsx('span', { className: 'text-(--ui-text-quaternary) ml-auto text-[9.5px]', children: dateStr }) : null
                           ] }),
                           r.summary
-                            ? jsx('div', { className: 'prose prose-sm max-w-none text-[11px] mt-1 pt-1 border-t border-(--ui-stroke-tertiary)/50', children: jsx(Streamdown, { children: r.summary }) })
+                            ? jsx('div', { className: 'prose prose-sm kg-prose max-w-none text-[11px] mt-1 pt-1 border-t border-(--ui-stroke-tertiary)/50', children: jsx(Streamdown, { children: r.summary }) })
                             : null
                         ]
                       })
@@ -1144,7 +1144,7 @@ function TaskDrawer({ taskId, board, onClose, assignees = [], docked = false, on
                             jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: c.author || '?' }),
                             dateStr ? jsx('span', { className: 'ml-auto text-(--ui-text-quaternary)', children: dateStr }) : null
                           ] }),
-                          jsx('div', { className: 'prose prose-sm max-w-none text-[11px]', children: jsx(Streamdown, { children: c.body || '' }) })
+                          jsx('div', { className: 'prose prose-sm kg-prose max-w-none text-[11px]', children: jsx(Streamdown, { children: c.body || '' }) })
                         ]
                       })
                     }),
@@ -1674,6 +1674,27 @@ const plugin = {
   animation: kg-arc-spin 2.2s linear infinite;
 }
 @keyframes kg-arc-spin { to { --kg-arc-angle: 360deg; } }
+/* Readability: ticket descriptions / results / summaries / comments render
+   markdown through the Tailwind typography plugin (prose), whose palette is dark and
+   illegible on the app's dark surfaces. Force a light palette, scoped to
+   .kg-prose so nothing outside the plugin page is affected. */
+.kg-prose {
+  --tw-prose-body: #fff; --tw-prose-headings: #fff; --tw-prose-lead: #fff;
+  --tw-prose-bold: #fff; --tw-prose-counters: #e5e7eb; --tw-prose-bullets: #e5e7eb;
+  --tw-prose-hr: rgba(255,255,255,.22); --tw-prose-quotes: #fff;
+  --tw-prose-quote-borders: rgba(255,255,255,.3); --tw-prose-captions: #e5e7eb;
+  --tw-prose-code: #fff; --tw-prose-pre-code: #fff; --tw-prose-pre-bg: rgba(255,255,255,.08);
+  --tw-prose-links: #9ecbff; --tw-prose-th-borders: rgba(255,255,255,.3);
+  --tw-prose-td-borders: rgba(255,255,255,.18);
+  color: #fff;
+}
+.kg-prose :where(p, li, dt, dd, span, div, em, strong, h1, h2, h3, h4, h5, h6, td, th, blockquote, pre, code) { color: #fff !important; }
+.kg-prose a { color: #9ecbff !important; text-decoration: underline; }
+.kg-prose :where(code) { background: rgba(255,255,255,.14); padding: .08em .32em; border-radius: 3px; }
+.kg-prose :where(pre) { background: rgba(255,255,255,.08); padding: .5em .6em; border-radius: 4px; }
+.kg-prose :where(pre code) { background: transparent; padding: 0; }
+.kg-prose :where(ul, ol) { padding-left: 1.1em; }
+.kg-prose :where(li)::marker { color: #e5e7eb; }
 `
       document.head.appendChild(style)
     }
